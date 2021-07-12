@@ -1,3 +1,6 @@
+
+# only supports java 8
+
 fedora 31 binary
 ```sudo -i
 cd /opt
