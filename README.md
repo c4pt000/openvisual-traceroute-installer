@@ -1,6 +1,12 @@
 
 # only supports java 8
 
+scripts to switch quickly between java8 and java11
+```
+https://raw.githubusercontent.com/c4pt000/Aqua-Term/master/java11-switch-on
+
+https://raw.githubusercontent.com/c4pt000/Aqua-Term/master/java8-switch-on
+```
 fedora 31 binary
 ```sudo -i
 cd /opt
