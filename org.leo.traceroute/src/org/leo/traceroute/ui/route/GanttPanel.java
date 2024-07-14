@@ -152,8 +152,6 @@ public class GanttPanel extends AbstractRoutePanel {
 
 	/**
 	 * Constructor
-	 *
-	 * @param route
 	 */
 	public GanttPanel(final ServiceFactory services) {
 		super(services);
@@ -196,15 +194,25 @@ public class GanttPanel extends AbstractRoutePanel {
 
 		_chart = ChartFactory.createGanttChart("", "", "", collection, true, true, false);
 		_chart.setAntiAlias(true);
-		_chart.setBackgroundPaint(new Color(240, 240, 240, 255));
+		if (Env.INSTANCE.isDarkTheme()) {
+			_chart.setBackgroundPaint(new Color( 128, 128, 128));
+		} else {
+			_chart.setBackgroundPaint(new Color(240, 240, 240));
+		}
 		_chart.setBorderVisible(false);
 		_chart.setTextAntiAlias(true);
 
 		updateLegend();
 
 		final CategoryPlot plot = _chart.getCategoryPlot();
-		final Color grey = new Color(200, 200, 200, 255);
-		plot.setBackgroundPaint(Color.WHITE);
+		final Color grey;
+		if (Env.INSTANCE.isDarkTheme()) {
+			grey = new Color(255, 255, 255);
+			_chart.setBackgroundPaint(new Color( 128, 128, 128));
+		} else {
+			plot.setBackgroundPaint(Color.WHITE);
+			grey = new Color(200, 200, 200);
+		}
 		plot.getRangeAxis().setTickLabelsVisible(false);
 		plot.getRangeAxis().setTickMarksVisible(false);
 		plot.getRangeAxis().setVisible(false);
@@ -328,9 +336,6 @@ public class GanttPanel extends AbstractRoutePanel {
 		_chart.addLegend(legend);
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.RouteListener#newRoute()
-	 */
 	@Override
 	public void newRoute(final boolean dnsLookup) {
 		_modeCombo.setEnabled(false);
@@ -343,10 +348,6 @@ public class GanttPanel extends AbstractRoutePanel {
 		_chart.fireChartChanged();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.RouteListener#routePointAdded(org.leo.traceroute.core.RoutePoint,
-	 *      boolean)
-	 */
 	@Override
 	public void routePointAdded(final RoutePoint point) {
 		final long f = 1000;
@@ -391,33 +392,21 @@ public class GanttPanel extends AbstractRoutePanel {
 		_scrollPane.revalidate();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.RouteListener#done(long)
-	 */
 	@Override
 	public void routeDone(final long tracerouteTime, final long lengthInKm) {
 		traceRouteEnded();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.RouteListener#error(java.io.IOException)
-	 */
 	@Override
 	public void error(final Exception exception, final Object origin) {
 		traceRouteEnded();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.RouteListener#cancelled()
-	 */
 	@Override
 	public void routeCancelled() {
 		traceRouteEnded();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.RouteListener#timeout()
-	 */
 	@Override
 	public void routeTimeout() {
 		traceRouteEnded();
@@ -436,9 +425,6 @@ public class GanttPanel extends AbstractRoutePanel {
 		_chart.fireChartChanged();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.IRouteListener#focusRoute(org.leo.traceroute.core.RoutePoint, boolean, boolean)
-	 */
 	@Override
 	public void focusRoute(final RoutePoint point, final boolean isTracing, final boolean animation) {
 		if (!_focusAdjusting) {

@@ -37,11 +37,11 @@ import javax.swing.SwingUtilities;
 import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.commons.lang3.tuple.Pair;
 import org.leo.traceroute.core.ServiceFactory;
+import org.leo.traceroute.core.ServiceFactory.Mode;
 import org.leo.traceroute.core.geo.GeoPoint;
 import org.leo.traceroute.core.route.RoutePoint;
 import org.leo.traceroute.install.Env;
 import org.leo.traceroute.resources.CountryFlagManager.Resolution;
-import org.leo.traceroute.ui.control.ControlPanel.Mode;
 import org.leo.traceroute.ui.util.ColorUtil;
 import org.leo.traceroute.ui.util.SwingUtilities4;
 
@@ -83,7 +83,8 @@ public class OpenMapPanel extends AbstractGeoPanel {
 	enum Theme {
 
 		NORMAL(new Color(121, 193, 192), "72CE9F", "EDF2AD"),
-		DARK(new Color(10, 10, 35), "0000FF", "000000");
+		DARK(new Color(152, 146, 146),
+				Integer.toHexString(new Color(169,46,34).getRGB()).substring(2), "000000");
 
 		private Color bg;
 		private String line;
@@ -179,13 +180,12 @@ public class OpenMapPanel extends AbstractGeoPanel {
 	private final Map<String, Pair<OMText, Image>> _toAvoidDuplicatedLabels = new HashMap<>();
 	private Pair<OMText, Image> _sourcePoint;
 	private final MapBean _mapBean;
-	private final Theme _theme = Theme.NORMAL;
+	private final Theme _theme = Env.INSTANCE.isDarkTheme() ? Theme.DARK : Theme.NORMAL;
 	private final Map<String, Pair<OMLine, MutableInt>> _packetDestCoordToPath = new HashMap<>();
 	private int _selectionIndex;
 
 	/**
 	 * Constructor
-	 * @param route
 	 */
 	public OpenMapPanel(final ServiceFactory serviceFactory) {
 		super(serviceFactory);
@@ -262,12 +262,8 @@ public class OpenMapPanel extends AbstractGeoPanel {
 			}
 		});
 		add(BorderLayout.CENTER, mapPanel);
-
 	}
 
-	/**
-	 * @see org.leo.traceroute.ui.AbstractRoutePanel#afterShow()
-	 */
 	@Override
 	public void afterShow(final Mode mode) {
 		super.afterShow(mode);
@@ -284,9 +280,6 @@ public class OpenMapPanel extends AbstractGeoPanel {
 		});
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.sniffer.IPacketListener#startCapture(boolean)
-	 */
 	@Override
 	public void startCapture() {
 		_mode = Mode.SNIFFER;

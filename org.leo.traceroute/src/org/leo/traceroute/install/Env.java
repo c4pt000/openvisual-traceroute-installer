@@ -47,13 +47,6 @@ import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
 
-import javax.media.opengl.DefaultGLCapabilitiesChooser;
-import javax.media.opengl.GL;
-import javax.media.opengl.GLCapabilities;
-import javax.media.opengl.GLContext;
-import javax.media.opengl.GLDrawable;
-import javax.media.opengl.GLDrawableFactory;
-import javax.media.opengl.GLProfile;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
@@ -65,18 +58,17 @@ import javax.swing.JOptionPane;
 import javax.swing.JSplitPane;
 import javax.swing.SwingUtilities;
 
+import com.jogamp.opengl.*;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.leo.traceroute.core.ServiceFactory;
+import org.leo.traceroute.core.ServiceFactory.Mode;
 import org.leo.traceroute.resources.Resources;
-import org.leo.traceroute.ui.control.ControlPanel.Mode;
 import org.leo.traceroute.ui.geo.IMapConfigListener;
 import org.leo.traceroute.ui.util.SwingUtilities4;
 import org.leo.traceroute.util.Util;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.jogamp.opengl.GLExtensions;
 
 import gov.nasa.worldwind.Configuration;
 import gov.nasa.worldwind.avlist.AVKey;
@@ -95,12 +87,15 @@ public enum Env {
 	public enum OS {
 		win,
 		linux,
-		mac
+		mac,
+		solaris
 	}
 
 	public enum Arch {
 		x86,
-		x64
+		x64,
+		armv6,
+		armv6hf
 	}
 
 	/**
@@ -226,6 +221,7 @@ public enum Env {
 	private static final String FONT_NAME = "font.name";
 	private static final String FONT_SIZE = "font.size";
 	private static final String FONT_STYLE = "font.style";
+	private static final String DARK_THEME = "theme.dark";
 
 	/** App config  */
 	private final Properties _conf = new Properties();
@@ -246,6 +242,7 @@ public enum Env {
 	private int _rightSeparator;
 	/** 2d/3d map */
 	private boolean _is3dMap;
+	private boolean _darkTheme;
 	/** Trace route or sniffer mode */
 	private Mode _mode;
 
@@ -271,7 +268,7 @@ public enum Env {
 
 	// dynamic conf
 	private String[] _ipResolvers;
-	private String _geoIpLocation;
+	private String[] _geoIpLocation;
 	private String _donateUrl;
 	private String _websitetUrl;
 	private String _supportUrl;
@@ -292,10 +289,13 @@ public enum Env {
 		// print some properties
 		LOGGER.info("Java run-time version: " + System.getProperty("java.version"));
 		LOGGER.info(gov.nasa.worldwind.Version.getVersion());
-		LOGGER.info(System.getProperty("java.library.path"));
+		LOGGER.info("Library Path " + System.getProperty("java.library.path"));
 		System.setProperty("awt.useSystemAAFontSettings", "on");
 		System.setProperty("swing.aatext", "true");
 		System.setProperty("java.net.useSystemProxies", "true");
+
+
+//		System.setProperty("jogl.windows.useWGLVersionOf5WGLGDIFuncSet", "true");
 		final Proxy proxy = getProxy();
 		if (proxy != null) {
 			final InetSocketAddress addr = (InetSocketAddress) proxy.address();
@@ -314,17 +314,6 @@ public enum Env {
 			}
 		}));
 		final Pair<OS, Arch> archOs = checkArchAndOs();
-		try {
-			final Field usrPathFiled = ClassLoader.class.getDeclaredField("usr_paths");
-			usrPathFiled.setAccessible(true);
-			final String[] usrPath = (String[]) usrPathFiled.get(null);
-			final String[] newUsrPath = new String[usrPath.length + 1];
-			System.arraycopy(usrPath, 0, newUsrPath, 0, usrPath.length);
-			newUsrPath[usrPath.length] = new File(NATIVE_FOLDER + Util.FILE_SEPARATOR + archOs.getLeft() + Util.FILE_SEPARATOR + archOs.getRight()).getAbsolutePath();
-			usrPathFiled.set(null, newUsrPath);
-		} catch (final Exception e) {
-			throw new EnvException(e);
-		}
 		_os = archOs.getLeft();
 		_arch = archOs.getRight();
 		try {
@@ -333,6 +322,13 @@ public enum Env {
 			LOGGER.error("Error while loading application saved configuration", e);
 			JOptionPane.showMessageDialog(null, Resources.getLabel("error.init", e.getMessage()), Resources.getLabel("fatal.error"), JOptionPane.ERROR_MESSAGE);
 			System.exit(-1);
+		}
+		if (Configuration.isMacOS()) {
+			System.setProperty("apple.laf.useScreenMenuBar", "true");
+			System.setProperty("com.apple.mrj.application.growbox.intrudes", "false");
+			System.setProperty("com.apple.mrj.application.apple.menu.about.name", Resources.getLabel("appli.title.short"));
+		} else if (Configuration.isWindowsOS()) {
+			System.setProperty("sun.awt.noerasebackground", "true");
 		}
 		return archOs;
 	}
@@ -350,8 +346,10 @@ public enum Env {
 		}
 		if (osName.toLowerCase().contains("win")) {
 			os = OS.win;
-		} else if (osName.toLowerCase().contains("linux")) {
+		} else if (osName.toLowerCase().contains("linux") || osName.toLowerCase().contains("bsd")) {
 			os = OS.linux;
+		} else if (osName.toLowerCase().contains("solaris")) {
+			os = OS.solaris;
 		} else if (osName.toLowerCase().contains("mac")) {
 			os = OS.mac;
 		}
@@ -386,13 +384,19 @@ public enum Env {
 						// WWJ will need those to render the globe
 						_openGlAvailable = gl.isExtensionAvailable(GLExtensions.EXT_texture_compression_s3tc)
 								|| gl.isExtensionAvailable(GLExtensions.NV_texture_compression_vtc);
+						context.release();
 					} catch (final Throwable e) {
+						LOGGER.error("OpenGL", e);
 						_openGlAvailable = false;
 					}
 				}
 			}
 		}
 		return _openGlAvailable;
+	}
+
+	public void setOpenGlAvailable(boolean openGlAvailable) {
+		_openGlAvailable = openGlAvailable;
 	}
 
 	/**
@@ -445,6 +449,7 @@ public enum Env {
 			_conf.put(FONT_NAME, String.valueOf(_font.getFontName()));
 			_conf.put(FONT_SIZE, String.valueOf(_font.getSize()));
 			_conf.put(FONT_STYLE, String.valueOf(_font.getStyle()));
+			_conf.put(DARK_THEME, String.valueOf(_darkTheme));
 			for (final IConfigProvider c : _configProvider) {
 				for (final Entry<String, String> entry : c.save().entrySet()) {
 					_conf.put(c.name() + "." + entry.getKey(), entry.getValue());
@@ -512,6 +517,7 @@ public enum Env {
 			_trInterfaceIndex = Integer.parseInt(_conf.getProperty(TR_INTERFACE, "-1"));
 			//_tracerouteAnonymous = Boolean.parseBoolean(conf.getProperty(TRACEROUTE_ANONYMOUS, "false"));
 			_disableHistory = Boolean.parseBoolean(_conf.getProperty(DISABLE_HISTORY, "false"));
+			_darkTheme = Boolean.parseBoolean(_conf.getProperty(DARK_THEME, "true"));
 			_animationSpeed = Integer.parseInt(_conf.getProperty(ANIMATION_SPEED, "1000"));
 			_mapLineThickness = Integer.parseInt(_conf.getProperty(MAP_LINE_THICKNESS, "3"));
 			_replaySpeed = Integer.parseInt(_conf.getProperty(REPLAY_SPEED, "2000"));
@@ -522,7 +528,7 @@ public enum Env {
 			_appY = _conf.containsKey(APP_Y) ? Integer.parseInt(_conf.getProperty(APP_Y)) : null;
 			final String fontName = _conf.getProperty(FONT_NAME, "SansSerif");
 			final int fontSize = Integer.parseInt(_conf.getProperty(FONT_SIZE, "9"));
-			final int fontStyle = Integer.parseInt(_conf.getProperty(FONT_STYLE, String.valueOf(Font.PLAIN)));
+			final int fontStyle = Integer.parseInt(_conf.getProperty(FONT_STYLE, String.valueOf(Font.BOLD)));
 			_font = new Font(fontName, fontStyle, fontSize);
 			if (!Boolean.parseBoolean(_conf.getProperty("strictSSL", "false"))) {
 				try {
@@ -530,12 +536,6 @@ public enum Env {
 						@Override
 						public java.security.cert.X509Certificate[] getAcceptedIssuers() {
 							return null;
-						}
-
-						public void checkClientTrusted(final X509Certificate[] certs, final String authType) {
-						}
-
-						public void checkServerTrusted(final X509Certificate[] certs, final String authType) {
 						}
 
 						@Override
@@ -604,7 +604,7 @@ public enum Env {
 	 * @return the value of is3dMap
 	 */
 	public boolean isIs3dMap() {
-		return _is3dMap;
+		return _is3dMap && isOpenGLAvailable();
 	}
 
 	/**
@@ -899,7 +899,10 @@ public enum Env {
 			if (ips != null) {
 				_ipResolvers = ips.split(",");
 			}
-			_geoIpLocation = prop.getProperty("geo.ip.location2");
+			final String geoDBs = prop.getProperty("geo.ip.location3");
+			if (geoDBs != null) {
+				_geoIpLocation = geoDBs.split(",");
+			}
 			_donateUrl = prop.getProperty("donate.url");
 			_versionUrl = prop.getProperty("version.url");
 			_whatsnewUrl = prop.getProperty("whats.new.url");
@@ -913,10 +916,10 @@ public enum Env {
 			IOUtils.closeQuietly(dynConf);
 		}
 		if (_geoIpLocation == null) {
-			_geoIpLocation = Resources.getStatic("update.geoip.url");
+			_geoIpLocation = Resources.getStatic("update.geoip.url").split(",");
 		}
 		if (_ipResolvers == null) {
-			_ipResolvers = new String[] { "http://www.trackip.net/ip", "https://api.ipify.org/" };
+			_ipResolvers = new String[] { "http://api.ipify.org/", "http://bot.whatismyipaddress.com/" };
 		}
 		if (_donateUrl == null) {
 			_donateUrl = Resources.getStatic("donate.url");
@@ -945,7 +948,7 @@ public enum Env {
 		return _ipResolvers;
 	}
 
-	public String getGeoIpLocation() {
+	public String[] getGeoIpLocation() {
 		return _geoIpLocation;
 	}
 
@@ -1112,13 +1115,21 @@ public enum Env {
 
 	/**
 	 * Set the value of the field mapLineWidth
-	 * @param mapLineWidth the new mapLineWidth to set
+	 * @param mapLineThickness the new mapLineWidth to set
 	 */
 	public void setMapLineThickness(final int mapLineThickness) {
 		_mapLineThickness = mapLineThickness;
 		for (final IMapConfigListener listener : _showLabelsListener) {
 			listener.setLineThickness(mapLineThickness);
 		}
+	}
+
+	public boolean isDarkTheme() {
+		return _darkTheme;
+	}
+
+	public void setDarkTheme(boolean darkTheme) {
+		_darkTheme = darkTheme;
 	}
 
 	private static Proxy getProxy() {

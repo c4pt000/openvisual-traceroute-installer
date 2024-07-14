@@ -1,3 +1,25 @@
+# 07-14-2024 updated for java 21 new source from author
+
+
+
+```
+docker pull c4pt/visualtraceroute
+docker run -it --net host -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=$DISPLAY c4pt/visualtraceroute
+```
+
+
+
+requires java-21 and "ant"
+
+
+```
+yum install java-21 ant nano -y
+
+cd org.leo.traceroute
+ant
+sh ~/Desktop/OpenVisualTraceRoute2.0.0/run.sh
+```
+
 
 # only supports java 8
 

@@ -20,7 +20,6 @@ package org.leo.traceroute.ui.geo;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.Dimension;
 import java.awt.Frame;
 import java.awt.Insets;
 import java.awt.Point;
@@ -34,34 +33,34 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import javax.swing.ImageIcon;
-import javax.swing.JComponent;
-import javax.swing.JPanel;
-import javax.swing.SwingUtilities;
+import javax.swing.*;
 
+import com.jogamp.opengl.DebugGL2;
+import com.jogamp.opengl.GLAutoDrawable;
+import gov.nasa.worldwind.*;
+import gov.nasa.worldwind.formats.shapefile.ShapefileLayerFactory;
+import gov.nasa.worldwind.layers.*;
+import gov.nasa.worldwindx.applications.worldwindow.core.*;
+import gov.nasa.worldwindx.applications.worldwindow.features.swinglayermanager.*;
 import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.commons.lang3.tuple.Pair;
 import org.leo.traceroute.core.ServiceFactory;
+import org.leo.traceroute.core.ServiceFactory.Mode;
 import org.leo.traceroute.core.geo.GeoPoint;
 import org.leo.traceroute.core.route.RoutePoint;
 import org.leo.traceroute.install.Env;
 import org.leo.traceroute.resources.CountryFlagManager.Resolution;
 import org.leo.traceroute.resources.Resources;
-import org.leo.traceroute.ui.control.ControlPanel.Mode;
 import org.leo.traceroute.ui.util.ColorUtil;
 import org.leo.traceroute.ui.util.GlassPane;
 import org.leo.traceroute.util.Util;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import gov.nasa.worldwind.Configuration;
-import gov.nasa.worldwind.View;
-import gov.nasa.worldwind.WorldWind;
 import gov.nasa.worldwind.avlist.AVKey;
 import gov.nasa.worldwind.event.SelectEvent;
 import gov.nasa.worldwind.geom.Angle;
 import gov.nasa.worldwind.geom.Position;
-import gov.nasa.worldwind.layers.RenderableLayer;
 import gov.nasa.worldwind.render.AnnotationAttributes;
 import gov.nasa.worldwind.render.BasicShapeAttributes;
 import gov.nasa.worldwind.render.Material;
@@ -71,10 +70,6 @@ import gov.nasa.worldwind.render.ScreenAnnotation;
 import gov.nasa.worldwind.render.ShapeAttributes;
 import gov.nasa.worldwind.view.orbit.OrbitView;
 import gov.nasa.worldwind.view.orbit.OrbitViewInputHandler;
-import gov.nasa.worldwindx.applications.worldwindow.core.AppPanel;
-import gov.nasa.worldwindx.applications.worldwindow.core.Controller;
-import gov.nasa.worldwindx.applications.worldwindow.core.ToolBar;
-import gov.nasa.worldwindx.applications.worldwindow.core.WWPanel;
 import gov.nasa.worldwindx.applications.worldwindow.core.layermanager.LayerPath;
 import gov.nasa.worldwindx.examples.util.LabeledPath;
 
@@ -90,24 +85,10 @@ public class WWJPanel extends AbstractGeoPanel {
 	/**  */
 	private static final long serialVersionUID = -2193398912295790389L;
 
-	static {
-		if (Configuration.isMacOS()) {
-			System.setProperty("apple.laf.useScreenMenuBar", "true");
-			System.setProperty("com.apple.mrj.application.growbox.intrudes", "false");
-			System.setProperty("com.apple.mrj.application.apple.menu.about.name", Resources.getLabel("appli.title.short"));
-		} else if (Configuration.isWindowsOS()) {
-			System.setProperty("sun.awt.noerasebackground", "true");
-		}
-	}
-
 	private static final org.leo.traceroute.resources.CountryFlagManager.Resolution IMAGE_RESOLUTION = Resolution.R32;
 
-	/** World Wind controller (static as we cannot reinit it) */
-	private static Controller _controller;
-	private static JPanel _container;
-
-	/** RenderableLayer */
-	private RenderableLayer _renderableLayer;
+	/** World Wind controller */
+	private static WWJController _controller;
 
 	/** Current route path */
 	private final List<Path> _lines = new ArrayList<>();
@@ -132,132 +113,75 @@ public class WWJPanel extends AbstractGeoPanel {
 
 	/**
 	 * Constructor
-	 *
-	 * @param route
 	 */
-	public WWJPanel(final ServiceFactory services) {
+	public WWJPanel(final ServiceFactory services) throws Exception {
 		super(services);
-		try {
-			_renderableLayer = new RenderableLayer();
-			final Dimension dim = new Dimension(800, 600);
-
-			if (_controller == null) {
-				_container = new JPanel(new BorderLayout());
-				_controller = new Controller() {
-					@Override
-					public Frame getFrame() {
-						return (Frame) SwingUtilities.getRoot(WWJPanel.this);//.getParent();
+		if (_controller == null) {
+			_controller = new WWJController(_services);
+			_controller.getWWd().addSelectListener(event -> {
+				if (event.getEventAction().equals(SelectEvent.LEFT_CLICK) && event.hasObjects() && event.getTopObject() instanceof ScreenAnnotation) {
+					final ScreenAnnotation sa = (ScreenAnnotation) event.getTopObject();
+					final List<GeoPoint> points = _annotationToPoint.get(sa);
+					if (_lastSelection != null && _lastSelection.getLeft().getAnnotation() == sa) {
+						// if same selection, rotate point
+						_selectionIndex = (_selectionIndex + 1) % (points.size());
+					} else {
+						_selectionIndex = 0;
 					}
-
-					@Override
-					public AppPanel getAppPanel() {
-						return new AppPanel() {
-							@Override
-							public boolean isInitialized() {
-								return true;
-							}
-
-							@Override
-							public void initialize(final Controller controller) {
-							}
-
-							@Override
-							public JPanel getJPanel() {
-								return _container;
-							}
-						};
+					if (points == null) {
+						focus(null);
+					} else {
+						focus(points.get(_selectionIndex));
 					}
-				};
-				_controller.start("resources/AppConfiguration.xml", dim);
-			} else {
-				removeAll();
-			}
-			SwingUtilities.invokeLater(() -> {
-				_controller.getWWd().getView().setPitch(Angle.fromDegrees(15));
-				final WWPanel wwpanel = _controller.getWWPanel();
-				add(_container, BorderLayout.NORTH);
-				add(wwpanel.getJPanel(), BorderLayout.CENTER);
-				final ToolBar toolBar = _controller.getToolBar();
-				if (toolBar != null) {
-					add(toolBar.getJToolBar(), BorderLayout.PAGE_START);
 				}
-				// StatusPanel statusPanel = controller.getStatusPanel();
-				// if (statusPanel != null) {
-				// add(statusPanel.getJPanel(), BorderLayout.PAGE_END);
-				// }
-				// add(new FlatWorldPanel(_controller.getWWd()),
-				// BorderLayout.PAGE_END);
-				final LayerPath path = new LayerPath("Trace Route");
-				_controller.getLayerManager().addLayer(_renderableLayer, path);
-				_controller.getLayerManager().getNode(path).setSelected(true);
-				_controller.getLayerManager().selectLayer(_renderableLayer, true);
-				_controller.getWWd().addSelectListener(event -> {
-					if (event.getEventAction().equals(SelectEvent.LEFT_CLICK) && event.hasObjects() && event.getTopObject() instanceof ScreenAnnotation) {
-						final ScreenAnnotation sa = (ScreenAnnotation) event.getTopObject();
-						final List<GeoPoint> points = _annotationToPoint.get(sa);
-						if (_lastSelection != null && _lastSelection.getLeft().getAnnotation() == sa) {
-							// if same selection, rotate point
-							_selectionIndex = (_selectionIndex + 1) % (points.size());
-						} else {
-							_selectionIndex = 0;
-						}
-						if (points == null) {
-							focus(null);
-						} else {
-							focus(points.get(_selectionIndex));
-						}
-					}
-				});
-				_controller.getWWd().getInputHandler().addMouseListener(new MouseAdapter() {
-					@Override
-					public void mouseClicked(final MouseEvent e) {
-						final Position currentPosition = _controller.getWWd().getCurrentPosition();
-						if (currentPosition != null) {
-							onMousePosition(currentPosition.getLatitude().getDegrees(), currentPosition.getLongitude().getDegrees());
-						}
-					}
-
-					@Override
-					public void mouseDragged(final MouseEvent e) {
-						final Position currentPosition = _controller.getWWd().getCurrentPosition();
-						if (currentPosition != null && _lastSelection != null) {
-							final LabeledPath path = _lastSelection.getKey();
-							path.getAnnotation().setScreenPoint(e.getLocationOnScreen());
-						}
-					}
-
-				});
-				_controller.getWWPanel().getJPanel().invalidate();
-				invalidate();
-				revalidate();
 			});
-		} catch (final Exception e) {
-			LOGGER.error(e.getLocalizedMessage(), e);
-			GlassPane.displayMessage(this, "Error while initializing the World Wind Component\n" + e.getMessage(), Resources.getImageIcon("error.png"));
+			_controller.getWWd().getInputHandler().addMouseListener(new MouseAdapter() {
+				@Override
+				public void mouseClicked(final MouseEvent e) {
+					final Position currentPosition = _controller.getWWd().getCurrentPosition();
+					if (currentPosition != null) {
+						onMousePosition(currentPosition.getLatitude().getDegrees(), currentPosition.getLongitude().getDegrees());
+					}
+				}
+
+				@Override
+				public void mouseDragged(final MouseEvent e) {
+					final Position currentPosition = _controller.getWWd().getCurrentPosition();
+					if (currentPosition != null && _lastSelection != null) {
+						final LabeledPath path = _lastSelection.getKey();
+						path.getAnnotation().setScreenPoint(e.getLocationOnScreen());
+					}
+				}
+			});
 		}
+
+		ToolBar toolBar = _controller.getToolBar();
+		if (toolBar != null) {
+			add(toolBar.getJToolBar(), BorderLayout.PAGE_START);
+		}
+//			StatusPanel status = _controller.getStatusPanel();
+//			if (status != null) {
+//				add(status.getJPanel(), BorderLayout.PAGE_END);
+//			}
+		add(_controller.getWWPanel().getJPanel(), BorderLayout.CENTER);
 	}
 
-	/**
-	 * @see org.leo.traceroute.ui.AbstractRoutePanel#afterShow()
-	 */
 	@Override
 	public void afterShow(final Mode mode) {
-		super.afterShow(mode);
-		SwingUtilities.invokeLater(() -> {
-			_container.invalidate();
-			_container.revalidate();
-			final GeoPoint localGeo = _services.getGeo().getLocalIpGeoLocation();
-			final Position p = new Position(Angle.fromDegrees(localGeo.getLat()), Angle.fromDegrees(localGeo.getLon()), 2000);
-			((OrbitView) _controller.getWWd().getView()).setCenterPosition(p);
-			if (mode == Mode.TRACE_ROUTE) {
-				_route.renotifyRoute();
-			} else if (mode == Mode.SNIFFER) {
-				_sniffer.renotifyPackets();
-			} else {
-				_whois.renotifyWhoIs();
-			}
-		});
-
+		final GeoPoint localGeo = _services.getGeo().getLocalIpGeoLocation();
+		final Position p = new Position(Angle.fromDegrees(localGeo.getLat()), Angle.fromDegrees(localGeo.getLon()), 2000);
+		_controller.getWWd().getView().setPitch(Angle.fromDegrees(15));
+		((OrbitView) _controller.getWWd().getView()).setCenterPosition(p);
+		if (mode == Mode.TRACE_ROUTE) {
+			_route.renotifyRoute();
+		} else if (mode == Mode.SNIFFER) {
+			_sniffer.renotifyPackets();
+		} else {
+			_whois.renotifyWhoIs();
+		}
+		invalidate();
+		revalidate();
+		_controller.redraw();
 	}
 
 	private double normalizeElevation(final double arbitraryElevation, final double step) {
@@ -286,7 +210,7 @@ public class WWJPanel extends AbstractGeoPanel {
 			final ScreenAnnotation annotation = makeLabelAnnotation(getText(point), point.getCountryFlag(IMAGE_RESOLUTION));
 			final LabeledPath label = new LabeledPath(Collections.singletonList(pos), annotation);
 			if (_mapShowLabel) {
-				_renderableLayer.addRenderable(label);
+				_controller._renderableLayer.addRenderable(label);
 			}
 			labelAndAnnotation = Pair.of(label, annotation);
 			_toAvoidDuplicatedLabels.put(coordKey, labelAndAnnotation);
@@ -296,7 +220,7 @@ public class WWJPanel extends AbstractGeoPanel {
 			final Pair<Path, MutableInt> pathAndNumberOfPackets = _packetDestCoordToPath.get(coordKey);
 			if (pathAndNumberOfPackets == null) {
 				final Path path = createPath(ColorUtil.INSTANCE.getColorForNumOfPoints(1));
-				_renderableLayer.addRenderable(path);
+				_controller._renderableLayer.addRenderable(path);
 				path.setPositions(Arrays.asList(new Position(_sourcePos, _sourcePos.getAltitude()), pos));
 				_packetDestCoordToPath.put(coordKey, Pair.of(path, new MutableInt(1)));
 			} else {
@@ -317,17 +241,13 @@ public class WWJPanel extends AbstractGeoPanel {
 			if (addLine && _previousPos != null) {
 				final Path path = createPath(((RoutePoint) point).getColor());
 				path.setPositions(Arrays.asList(new Position(_previousPos, pos.getElevation()), pos));
-				_renderableLayer.addRenderable(path);
+				_controller._renderableLayer.addRenderable(path);
 			}
 			_previousPos = pos;
 		}
 
 		_pointToLabel.put(point, labelAndAnnotation.getLeft());
-		List<GeoPoint> points = _annotationToPoint.get(labelAndAnnotation.getRight());
-		if (points == null) {
-			points = new ArrayList<>();
-			_annotationToPoint.put(labelAndAnnotation.getRight(), points);
-		}
+		List<GeoPoint> points = _annotationToPoint.computeIfAbsent(labelAndAnnotation.getRight(), k -> new ArrayList<>());
 		points.add(point);
 		// redraw
 		_controller.redraw();
@@ -382,19 +302,13 @@ public class WWJPanel extends AbstractGeoPanel {
 		return attrs;
 	}
 
-	/**
-	 * @see org.leo.traceroute.ui.AbstractRoutePanel#dispose()
-	 */
 	public void dispose(final boolean destroy) {
 		super.dispose();
 		if (destroy) {
-			//_controller.getWWd().shutdown();
+			_controller.getWWd().shutdown();
 		}
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.sniffer.IPacketListener#startCapture(boolean)
-	 */
 	@Override
 	public void startCapture() {
 		_mode = Mode.SNIFFER;
@@ -420,7 +334,7 @@ public class WWJPanel extends AbstractGeoPanel {
 		_toAvoidDuplicatedLabels.clear();
 		_lines.clear();
 		_previousPos = null;
-		_renderableLayer.removeAllRenderables();
+		_controller._renderableLayer.removeAllRenderables();
 		_controller.redraw();
 	}
 
@@ -476,7 +390,7 @@ public class WWJPanel extends AbstractGeoPanel {
 	/**
 	 * Highlight the given annotation
 	 *
-	 * @param annotation
+	 * @param label
 	 * @param point
 	 */
 	private void highlightAnnotation(final LabeledPath label, final GeoPoint point) {
@@ -489,7 +403,7 @@ public class WWJPanel extends AbstractGeoPanel {
 				lastSelectedAnnotation.setAttributes(createAnnotationAttr(false, lastSelectedPoint.getCountryFlag(IMAGE_RESOLUTION), getText(lastSelectedPoint)));
 				lastSelectedAnnotation.setAlwaysOnTop(false);
 			} else {
-				_renderableLayer.removeRenderable(lastSelectedLabel);
+				_controller._renderableLayer.removeRenderable(lastSelectedLabel);
 			}
 		}
 		final ImageIcon image = point.getCountryFlag(IMAGE_RESOLUTION);
@@ -497,14 +411,14 @@ public class WWJPanel extends AbstractGeoPanel {
 		annotation.setAttributes(createAnnotationAttr(true, image, text));
 		annotation.setAlwaysOnTop(true);
 		if (!_mapShowLabel) {
-			_renderableLayer.addRenderable(label);
+			_controller._renderableLayer.addRenderable(label);
 			_controller.redraw();
 		}
 		_lastSelection = Pair.of(label, point);
 	}
 
 	/**
-	 * Enable or disable the childs of the given component
+	 * Enable or disable the children of the given component
 	 *
 	 * @param enable true or false !
 	 * @param comp the component
@@ -518,34 +432,27 @@ public class WWJPanel extends AbstractGeoPanel {
 		}
 	}
 
-	/**
-	 * Set the value of the field mapShowLabel
-	 * @param mapShowLabel the new mapShowLabel to set
-	 */
 	@Override
 	public void changeMapShowLabel(final boolean mapShowLabel) {
 		if (mapShowLabel) {
 			for (final Pair<LabeledPath, ScreenAnnotation> pair : _toAvoidDuplicatedLabels.values()) {
 				if (_lastSelection == null || pair.getLeft() != _lastSelection.getLeft()) {
-					_renderableLayer.addRenderable(pair.getLeft());
+					_controller._renderableLayer.addRenderable(pair.getLeft());
 				}
 			}
 		} else {
 			for (final Pair<LabeledPath, ScreenAnnotation> pair : _toAvoidDuplicatedLabels.values()) {
 				if (_lastSelection == null || pair.getLeft() != _lastSelection.getLeft()) {
-					_renderableLayer.removeRenderable(pair.getLeft());
+					_controller._renderableLayer.removeRenderable(pair.getLeft());
 				}
 			}
 		}
 		_controller.redraw();
 	}
 
-	/**
-	 * @see org.leo.traceroute.ui.geo.AbstractGeoPanel#changeLineThickness(int)
-	 */
 	@Override
 	protected void changeLineThickness(final int thickness) {
-		final Iterator<Renderable> iterator = _renderableLayer.getRenderables().iterator();
+		final Iterator<Renderable> iterator = _controller._renderableLayer.getRenderables().iterator();
 		while (iterator.hasNext()) {
 			final Renderable r = iterator.next();
 			if (r instanceof Path) {
@@ -556,4 +463,79 @@ public class WWJPanel extends AbstractGeoPanel {
 		_controller.redraw();
 	}
 
+	public static class WWJController extends Controller {
+
+		private final ServiceFactory _services;
+		private final RenderableLayer _renderableLayer;
+
+		public WWJController(ServiceFactory services) throws Exception {
+			_services = services;
+			new WWAppConfiguration(this);
+			_renderableLayer = new RenderableLayer();
+			LayerPath path = new LayerPath("Trace Route");
+			getLayerManager().addLayer(_renderableLayer, path);
+			getLayerManager().getNode(path).setSelected(true);
+			getLayerManager().selectLayer(_renderableLayer, true);
+			List<Layer> remove = new ArrayList<>();
+			getActiveLayers().forEach(l -> {
+				if (l.getName().startsWith("Political")) {
+					remove.add(l); 
+				}
+			});
+			remove.forEach(l -> getLayerManager().removeLayer(l));
+//			Layer world = (Layer) new ShapefileLayerFactory().createFromShapefileSource("resources/world_border.shp");
+//			world.setName("World");
+//			LayerPath worldPath = new LayerPath("Boundaries");
+//			getLayerManager().addLayer(world, worldPath);
+//			getLayerManager().getNode(worldPath).setSelected(true);
+//			getLayerManager().selectLayer(world, true);
+			ControlsPanelImpl dialog = (ControlsPanelImpl) getRegisteredObject("gov.nasa.worldwindx.applications.worldwindow.ControlsPanel");
+			for (Component c : dialog.getJPanel().getComponents()) {
+				if (c instanceof JSplitPane) {
+					JSplitPane split = (JSplitPane) c;
+					split.setBottomComponent(null);
+				}
+			}
+		}
+
+		@Override
+		public Frame getFrame() {
+			return _services.getMain();
+		}
+
+		@Override
+		public AppPanel getAppPanel() {
+			return new AppPanel() {
+				@Override
+				public JPanel getJPanel() {
+					return getWWPanel().getJPanel();
+				}
+				@Override
+				public void initialize(Controller controller) { }
+				@Override
+				public boolean isInitialized() {
+					return false;
+				}
+			};
+		}
+	}
+
+	public static class WWAppConfiguration extends AppConfiguration {
+
+		public WWAppConfiguration(WWJController controller) throws Exception {
+			initialize(controller);
+			ImageLibrary.setInstance(new ImageLibrary());
+			registerConfiguration("resources/AppConfiguration.xml");
+		}
+	}
+
+	public static class DebugGLAutoDrawable extends WorldWindowGLAutoDrawable {
+		public DebugGLAutoDrawable() {
+		}
+
+		public void init(GLAutoDrawable var1) {
+			super.init(var1);
+			var1.setGL(new DebugGL2(var1.getGL().getGL2()));
+		}
+	}
 }

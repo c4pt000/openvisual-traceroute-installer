@@ -24,25 +24,26 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.IOException;
 
-import javax.swing.JButton;
-import javax.swing.JFrame;
-import javax.swing.JPanel;
+import javax.swing.*;
+import javax.swing.border.Border;
 
 import org.apache.commons.lang3.tuple.Pair;
 import org.leo.traceroute.core.ServiceFactory;
+import org.leo.traceroute.core.ServiceFactory.Mode;
 import org.leo.traceroute.core.autocomplete.AutoCompleteProvider;
 import org.leo.traceroute.core.geo.GeoService;
 import org.leo.traceroute.core.network.DNSLookupService;
-import org.leo.traceroute.core.network.JNetCapNetworkService;
-import org.leo.traceroute.core.network.JPcapNetworkService;
+import org.leo.traceroute.core.network.EmptyNetworkService;
 import org.leo.traceroute.core.route.IRouteListener;
 import org.leo.traceroute.core.route.impl.AbstractTraceRoute;
-import org.leo.traceroute.core.sniffer.impl.JNetCapPacketSniffer;
+import org.leo.traceroute.core.route.impl.OSTraceRoute;
+import org.leo.traceroute.core.sniffer.impl.EmptyPacketsSniffer;
 import org.leo.traceroute.core.whois.WhoIs;
 import org.leo.traceroute.install.Env;
 import org.leo.traceroute.install.EnvException;
 import org.leo.traceroute.ui.AbstractPanel;
 import org.leo.traceroute.ui.geo.OpenMapPanel;
+import org.leo.traceroute.ui.geo.WWJPanel;
 import org.leo.traceroute.ui.route.GanttPanel;
 import org.leo.traceroute.ui.route.RouteTablePanel;
 import org.leo.traceroute.ui.task.CancelMonitor;
@@ -56,12 +57,14 @@ import org.leo.traceroute.ui.util.SplashScreen;
  */
 public class UITest {
 
-	private static boolean bool;
+	private static boolean bool = true;
 
 	/**
 	 * @param args
 	 */
-	public static void main(final String[] args) throws HeadlessException, EnvException {
+	public static void main(final String[] args) throws Exception {
+		ToolTipManager.sharedInstance().setEnabled(false);
+		ToolTipManager.sharedInstance().setInitialDelay(10);
 		final JFrame f = new JFrame();
 		final SplashScreen splash = new SplashScreen(f, true, 6);
 		Env.INSTANCE.initEnv();
@@ -79,46 +82,37 @@ public class UITest {
 		b.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(final ActionEvent e) {
-				display(sub);
+				try {
+					display(f, sub);
+				} catch (Exception exception) {
+					exception.printStackTrace();
+				}
 			}
 		});
 		f.getContentPane().add(main, BorderLayout.CENTER);
 		f.pack();
 		f.setVisible(true);
 		f.setLocationRelativeTo(null);
-		display(sub);
+		display(f, sub);
 
 	}
 
-	private static void display(final JPanel sub) {
-		final ServiceFactory services = new ServiceFactory(new AbstractTraceRoute() {
+	private static void display(JFrame frame, final JPanel sub) throws Exception {
+		final ServiceFactory services = new ServiceFactory(new AbstractTraceRoute<Void>() {
 			@Override
 			protected void computeRoute(final String formatedDest, final CancelMonitor monitor, final boolean resolveHostname,
-					final int maxHops) throws IOException {
-				for (int i = 0; i < 100; i++) {
+										final boolean ipV4, final int maxHops) throws IOException {
+				for (int i = 0; i < 20; i++) {
 					addPoint(Pair.of("118.236.194.140", "localhost"), 10, 10);
 				}
 				addPoint(Pair.of("66.249.64.0", "google.com"), 10, 10);
 			}
 
-			@Override
-			public void addListener(final IRouteListener listener) {
-				getListeners().add(listener);
-			}
-
-			@Override
-			public void removeListener(final IRouteListener listener) {
-				getListeners().remove(listener);
-			}
-		}, new JNetCapPacketSniffer() {
+		}, new EmptyPacketsSniffer() {
 			@Override
 			public void init(final ServiceFactory services) throws IOException {
 			}
-		}, new JNetCapNetworkService() {
-			@Override
-			public void init(final ServiceFactory services) throws IOException {
-			}
-		}, new JPcapNetworkService() {
+		}, new EmptyNetworkService() {
 			@Override
 			public void init(final ServiceFactory services) throws IOException {
 			}
@@ -126,25 +120,34 @@ public class UITest {
 			@Override
 			public void init(final ServiceFactory services) throws Exception {
 			}
-		});
+		}) {
+			@Override
+			public JFrame getMain() {
+				return frame;
+			}
+		};
 		try {
 			services.init();
 		} catch (final Exception e) {
 			e.printStackTrace();
 		}
-		final AbstractPanel panel = /*bool ? new WWJPanel(null) : */new OpenMapPanel(services);
+		final AbstractPanel map = bool ? new WWJPanel(services) : new OpenMapPanel(services);
+		map.afterShow(Mode.TRACE_ROUTE);
 		final GanttPanel gant = new GanttPanel(services);
 		final RouteTablePanel table = new RouteTablePanel(services);
 		bool = !bool;
-		panel.setPreferredSize(new Dimension(400, 500));
-		gant.setPreferredSize(new Dimension(400, 500));
-		table.setPreferredSize(new Dimension(400, 500));
+		map.setPreferredSize(new Dimension(400, 600));
+		gant.setPreferredSize(new Dimension(400, 300));
+		table.setPreferredSize(new Dimension(400, 300));
 		sub.removeAll();
-		sub.add(panel, BorderLayout.CENTER);
-		sub.add(table, BorderLayout.EAST);
+		JPanel right = new JPanel(new BorderLayout());
+		right.add(table, BorderLayout.CENTER);
+		right.add(gant, BorderLayout.SOUTH);
+		sub.add(map, BorderLayout.CENTER);
+		sub.add(right, BorderLayout.EAST);
 		sub.invalidate();
 		sub.revalidate();
-		services.getTraceroute().compute("test", new CancelMonitor(), false, 10000, false, true, 50);
+		services.getTraceroute().compute("test", new CancelMonitor(), false, 10000, true, 50);
 		sub.repaint();
 	}
 }

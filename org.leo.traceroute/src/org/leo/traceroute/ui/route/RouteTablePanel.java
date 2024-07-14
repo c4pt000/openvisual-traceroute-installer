@@ -208,8 +208,7 @@ public class RouteTablePanel extends AbstractRoutePanel implements IConfigProvid
 	/**
 	 * Constructor
 	 *
-	 * @param route
-	 * @param networkInterfaceChooser
+	 * @param services
 	 */
 	public RouteTablePanel(final ServiceFactory services) {
 		super(services);
@@ -218,8 +217,6 @@ public class RouteTablePanel extends AbstractRoutePanel implements IConfigProvid
 
 	/**
 	 * Initialization of the panel
-	 *
-	 * @param networkInterfaceChooser
 	 */
 	@SuppressWarnings("serial")
 	private void init() {
@@ -310,7 +307,7 @@ public class RouteTablePanel extends AbstractRoutePanel implements IConfigProvid
 	}
 
 	/**
-	 * @see org.leo.traceroute.core.RouteListener#newRoute(boolean)
+	 * @see org.leo.traceroute.core.route.IRouteListener#newRoute(boolean)
 	 */
 	@Override
 	public void newRoute(final boolean dnsLookup) {
@@ -319,49 +316,31 @@ public class RouteTablePanel extends AbstractRoutePanel implements IConfigProvid
 		_model.fireTableDataChanged();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.RouteListener#routePointAdded(org.leo.traceroute.core.RoutePoint)
-	 */
 	@Override
 	public void routePointAdded(final RoutePoint p) {
 		_model.fireTableDataChanged();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.RouteListener#done()
-	 */
 	@Override
 	public void routeDone(final long tracerouteTime, final long lengthInKm) {
 		traceRouteEnded();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.RouteListener#error(org.leo.traceroute.core.RouteException)
-	 */
 	@Override
 	public void error(final Exception exception, final Object origin) {
 		traceRouteEnded();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.RouteListener#cancelled()
-	 */
 	@Override
 	public void routeCancelled() {
 		traceRouteEnded();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.RouteListener#timeout()
-	 */
 	@Override
 	public void routeTimeout() {
 		traceRouteEnded();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.route.IRouteListener#maxHops()
-	 */
 	@Override
 	public void maxHops() {
 		traceRouteEnded();
@@ -369,18 +348,12 @@ public class RouteTablePanel extends AbstractRoutePanel implements IConfigProvid
 
 	/**
 	 * Trace root ended
-	 *
-	 * @param complete complete or cancel/error
-	 * @param label label to show in the progress bar
 	 */
 	private void traceRouteEnded() {
 		_searching = false;
 		_model.fireTableDataChanged();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.IRouteListener#focusRoute(org.leo.traceroute.core.RoutePoint, boolean, boolean)
-	 */
 	@Override
 	public void focusRoute(final RoutePoint point, final boolean isTracing, final boolean animation) {
 		if (!_focusAdjusting) {
@@ -395,9 +368,6 @@ public class RouteTablePanel extends AbstractRoutePanel implements IConfigProvid
 		}
 	}
 
-	/**
-	 * Dispose the panel
-	 */
 	@Override
 	public void dispose() {
 		super.dispose();
@@ -407,8 +377,6 @@ public class RouteTablePanel extends AbstractRoutePanel implements IConfigProvid
 
 	/**
 	 * RouteTableModel
-	 *
-	 * @author Leo Lewis
 	 */
 	private class RouteTableModel extends AbstractTableModel {
 
@@ -427,25 +395,16 @@ public class RouteTablePanel extends AbstractRoutePanel implements IConfigProvid
 			_route = route;
 		}
 
-		/**
-		 * @see javax.swing.table.TableModel#getColumnCount()
-		 */
 		@Override
 		public int getColumnCount() {
 			return Column.values().length;
 		}
 
-		/**
-		 * @see javax.swing.table.TableModel#getRowCount()
-		 */
 		@Override
 		public int getRowCount() {
 			return _route.getRoute().size();
 		}
 
-		/**
-		 * @see javax.swing.table.TableModel#getValueAt(int, int)
-		 */
 		@Override
 		public Object getValueAt(final int row, final int col) {
 			final RoutePoint point = _route.getRoute().get(row);
@@ -457,17 +416,11 @@ public class RouteTablePanel extends AbstractRoutePanel implements IConfigProvid
 			return _indexToColumn.get(column).getClazz();
 		}
 
-		/**
-		 * @see javax.swing.table.AbstractTableModel#getColumnName(int)
-		 */
 		@Override
 		public String getColumnName(final int column) {
 			return _indexToColumn.get(column).getLabel();
 		}
 
-		/**
-		 * @see javax.swing.table.AbstractTableModel#isCellEditable(int, int)
-		 */
 		@Override
 		public boolean isCellEditable(final int row, final int column) {
 			if (_indexToColumn.get(column) == Column.WHO_IS) {
@@ -477,9 +430,6 @@ public class RouteTablePanel extends AbstractRoutePanel implements IConfigProvid
 			return false;
 		}
 
-		/**
-		 * Dispose the model
-		 */
 		public void dispose() {
 
 		}
@@ -492,13 +442,8 @@ public class RouteTablePanel extends AbstractRoutePanel implements IConfigProvid
 	 */
 	private class RouteCellRenderer extends DefaultTableCellRenderer {
 
-		/**  */
 		private static final long serialVersionUID = 1622508565550177571L;
 
-		/**
-		 * @see javax.swing.table.DefaultTableCellRenderer#getTableCellRendererComponent(javax.swing.JTable,
-		 *      java.lang.Object, boolean, boolean, int, int)
-		 */
 		@Override
 		public Component getTableCellRendererComponent(final JTable table, final Object value, final boolean isSelected, final boolean hasFocus, final int row,
 				final int column) {
@@ -507,13 +452,25 @@ public class RouteTablePanel extends AbstractRoutePanel implements IConfigProvid
 				final JLabel label = (JLabel) c;
 				// bg selection color
 				if (isSelected) {
-					label.setBackground(new Color(200, 200, 255));
+					if (Env.INSTANCE.isDarkTheme()) {
+						label.setBackground(new Color(169,46,34));
+					} else {
+						label.setBackground(new Color(200, 200, 255));
+					}
 				} else {
 					// otherwise, alternate bg color
 					if (row % 2 == 0) {
-						label.setBackground(new Color(245, 245, 245));
+						if (Env.INSTANCE.isDarkTheme()) {
+							label.setBackground(new Color(176,179,50));
+						} else {
+							label.setBackground(new Color(245, 245, 245));
+						}
 					} else {
-						label.setBackground(new Color(254, 254, 254));
+						if (Env.INSTANCE.isDarkTheme()) {
+							label.setBackground(new Color(128,128,128));
+						} else {
+							label.setBackground(new Color(254, 254, 254));
+						}
 					}
 				}
 				final Column col = _indexToColumn.get(column);
@@ -532,7 +489,7 @@ public class RouteTablePanel extends AbstractRoutePanel implements IConfigProvid
 					button.setEnabled(!_searching && point != null && !point.isUnknown());
 					return button;
 				} else {
-					if ((col == Column.LATENCY || col == Column.DNS_LOOKUP) && value.equals(0l)) {
+					if ((col == Column.LATENCY || col == Column.DNS_LOOKUP) && value.equals(0L)) {
 						if (!_dnsLookup && col == Column.DNS_LOOKUP) {
 							label.setText("");
 						} else {
@@ -554,7 +511,6 @@ public class RouteTablePanel extends AbstractRoutePanel implements IConfigProvid
 	 */
 	public class ButtonCellEditor extends DefaultCellEditor {
 
-		/**  */
 		private static final long serialVersionUID = 5338833733700590170L;
 
 		public ButtonCellEditor() {

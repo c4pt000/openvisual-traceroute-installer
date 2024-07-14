@@ -38,6 +38,7 @@ import javax.swing.SwingUtilities;
 import org.apache.commons.lang3.tuple.Pair;
 import org.leo.traceroute.core.AbstractObject;
 import org.leo.traceroute.core.ServiceFactory;
+import org.leo.traceroute.core.ServiceFactory.Mode;
 import org.leo.traceroute.core.network.DNSLookupService;
 import org.leo.traceroute.core.network.INetworkInterfaceListener;
 import org.leo.traceroute.core.route.IRouteListener;
@@ -47,8 +48,10 @@ import org.leo.traceroute.core.route.RouteException;
 import org.leo.traceroute.core.route.RoutePoint;
 import org.leo.traceroute.install.Env;
 import org.leo.traceroute.install.Env.OS;
+import org.leo.traceroute.ui.AbstractPanel;
 import org.leo.traceroute.ui.route.RouteTablePanel.Column;
 import org.leo.traceroute.ui.task.CancelMonitor;
+import org.leo.traceroute.ui.util.SwingUtilities4;
 import org.leo.traceroute.util.Util;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -95,31 +98,19 @@ public abstract class AbstractTraceRoute<T> extends AbstractObject<IRouteListene
 			while (!isInterrupted()) {
 				try {
 					final RoutePoint point = _notifyQueue.poll(10, TimeUnit.MILLISECONDS);
-					// notify in the EDT
 					if (point != null) {
-						SwingUtilities.invokeAndWait(() -> {
-							// notify route point added
-							for (final IRouteListener listener1 : getListeners()) {
-								listener1.routePointAdded(point);
-							}
-							// focus on the point
-							for (final IRouteListener listener2 : getListeners()) {
-								listener2.focusRoute(point, true, true);
-							}
-							_notified.incrementAndGet();
-						});
+						// notify route point added
+						notifyListeners((listener) -> listener.routePointAdded(point));
+						// focus on the point
+						notifyListeners((listener) -> listener.focusRoute(point, true, true));
+						_notified.incrementAndGet();
 					}
 				} catch (final InterruptedException e) {
 
-				} catch (final InvocationTargetException e) {
 				}
-
 			}
 		}
 	};
-	{
-		_notifyThread.setDaemon(true);
-	}
 
 	/**
 	 * Constructor
@@ -128,12 +119,10 @@ public abstract class AbstractTraceRoute<T> extends AbstractObject<IRouteListene
 		super();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.ITraceRoute#init()
-	 */
 	@Override
 	public void init(final ServiceFactory services) throws IOException {
 		_services = services;
+		_notifyThread.setDaemon(true);
 		_notifyThread.start();
 	}
 
@@ -146,8 +135,7 @@ public abstract class AbstractTraceRoute<T> extends AbstractObject<IRouteListene
 	 * @param resolveHostname if resolve host name
 	 */
 	@Override
-	public void compute(final String dest, final CancelMonitor monitor, final boolean resolveHostname, final long timeOutMs, final boolean useOsTraceroute,
-			final boolean ipV4, final int maxHops) {
+	public void compute(final String dest, final CancelMonitor monitor, final boolean resolveHostname, final long timeOutMs, final boolean ipV4, final int maxHops) {
 		try {
 			_semaphore.acquire();
 			_route.clear();
@@ -178,9 +166,7 @@ public abstract class AbstractTraceRoute<T> extends AbstractObject<IRouteListene
 			_threadPool.execute(() -> {
 				try {
 					// notify new route
-					for (final IRouteListener listener1 : getListeners()) {
-						listener1.newRoute(resolveHostname);
-					}
+					notifyListeners((listener) -> listener.newRoute(resolveHostname));
 					// compute route
 					final long time = System.currentTimeMillis();
 					// check for time out if required
@@ -200,12 +186,8 @@ public abstract class AbstractTraceRoute<T> extends AbstractObject<IRouteListene
 							}
 						}, 0, 100);
 					}
-					LOGGER.info("Starting {} traceroute to {} with maxhops={} and timeout={}ms", useOsTraceroute ? "OS" : "embedded", fdest, maxHops, timeOutMs);
-					if (useOsTraceroute || !ipV4) {
-						computeOSRoute(fdest, monitor, resolveHostname, ipV4, maxHops);
-					} else {
-						computeRoute(fdest, monitor, resolveHostname, maxHops);
-					}
+					LOGGER.info("Starting traceroute to {} with maxhops={} and timeout={}ms", fdest, maxHops, timeOutMs);
+					computeRoute(fdest, monitor, resolveHostname, ipV4, maxHops);
 					if (timer != null) {
 						timer.cancel();
 					}
@@ -213,9 +195,7 @@ public abstract class AbstractTraceRoute<T> extends AbstractObject<IRouteListene
 					if (!timedOut.get()) {
 						// if monitor canceled, notify canceled
 						if (monitor.isCanceled()) {
-							for (final IRouteListener listener2 : getListeners()) {
-								listener2.routeCancelled();
-							}
+							notifyListeners(listener -> listener.routeCancelled());
 						} else {
 							// notify done
 							_tracerouteTime = System.currentTimeMillis() - time;
@@ -223,15 +203,11 @@ public abstract class AbstractTraceRoute<T> extends AbstractObject<IRouteListene
 							while (_notified.get() < _route.size()) {
 								Thread.sleep(100);
 							}
-							for (final IRouteListener listener3 : getListeners()) {
-								listener3.routeDone(_tracerouteTime, _lengthInKm.get());
-							}
+							notifyListeners(listener -> listener.routeDone(_tracerouteTime, _lengthInKm.get()));
 						}
 					} else {
 						// notify listeners
-						for (final IRouteListener listener4 : getListeners()) {
-							listener4.routeTimeout();
-						}
+						notifyListeners(listener -> listener.routeTimeout());
 					}
 					// if the traceroute didn't failed, add it to the history
 					_services.getAutocomplete().addToHistory(dest);
@@ -241,15 +217,11 @@ public abstract class AbstractTraceRoute<T> extends AbstractObject<IRouteListene
 						if (e instanceof MaxHopsException) {
 							// notify max hops
 							LOGGER.warn("Traceroute to {} stopped because reached the max hops", fdest);
-							for (final IRouteListener listener5 : getListeners()) {
-								listener5.maxHops();
-							}
+							notifyListeners(listener -> listener.maxHops());
 						} else {
 							// notify error
 							LOGGER.error("Traceroute to {} failed", fdest, e);
-							for (final IRouteListener listener6 : getListeners()) {
-								listener6.error(e, AbstractTraceRoute.this);
-							}
+							notifyListeners(listener -> listener.error(e, AbstractTraceRoute.this));
 						}
 					}
 				} finally {
@@ -260,9 +232,7 @@ public abstract class AbstractTraceRoute<T> extends AbstractObject<IRouteListene
 			if (!monitor.isCanceled()) {
 				// notify error
 				LOGGER.error("Traceroute failed", e);
-				for (final IRouteListener listener : getListeners()) {
-					listener.error(e, AbstractTraceRoute.this);
-				}
+				notifyListeners(listener -> listener.error(e, AbstractTraceRoute.this));
 			}
 			_semaphore.release();
 		}
@@ -273,175 +243,10 @@ public abstract class AbstractTraceRoute<T> extends AbstractObject<IRouteListene
 	 * @param formatedDest
 	 * @param monitor
 	 * @param resolveHostname
+	 * @param ipV4
 	 * @param maxHops
 	 */
-	protected abstract void computeRoute(final String formatedDest, final CancelMonitor monitor, final boolean resolveHostname, final int maxHops) throws Exception;
-
-	/**
-	 * Compute the route using OS command
-	 * @param formatedDest
-	 * @param monitor
-	 * @param resolveHostname
-	 */
-	private void computeOSRoute(final String formatedDest, final CancelMonitor monitor, final boolean resolveHostname, final boolean ipV4, final int maxHops)
-			throws Exception {
-		try {
-			String cmd;
-			if (Env.INSTANCE.getOs() == OS.win) {
-				cmd = "tracert";
-				if (!resolveHostname) {
-					cmd += " -d";
-				}
-				if (!ipV4) {
-					cmd += " -6";
-				}
-				cmd += " -h " + maxHops;
-			} else {
-				cmd = "traceroute";
-				if (!ipV4) {
-					cmd += "6";
-				}
-				cmd += " -q 1";
-				if (!resolveHostname) {
-					cmd += " -n";
-				}
-				cmd += " -m " + maxHops;
-			}
-			final Process process = Runtime.getRuntime().exec(cmd + " " + formatedDest);
-			try {
-				final InputStream input = process.getInputStream();
-				final int ignoreLines = Env.INSTANCE.getOs() == OS.win ? 4 : (Env.INSTANCE.getOs() == OS.mac ? 0 : 1);
-				// check if the host exists
-				final String destIp = InetAddress.getByName(formatedDest).getHostAddress();
-				int lineNum = 0;
-				boolean completed = false;
-				RoutePoint previous = null;
-				while (!completed && !monitor.isCanceled()) {
-					char c;
-					final StringBuilder linebuffer = new StringBuilder();
-					do {
-						final int r = input.read();
-						if (r == -1) {
-							if (Env.INSTANCE.getOs() == OS.win) {
-								//on windows, we expect a Trace complete to terminate the execution
-								throw new RouteException("Failed to traceroute to host");
-							} else {
-								// but on other OS, that's just an end of stream
-								completed = true;
-								break;
-							}
-						}
-						c = Character.toChars(r)[0];
-						if (c != '\n') {
-							linebuffer.append(c);
-						}
-					} while (c != '\n');
-					lineNum++;
-					if (lineNum <= ignoreLines) {
-						continue;
-					}
-					if (linebuffer.toString().startsWith("traceroute: Warning: " + formatedDest + " has multiple addresses")) {
-						continue;
-					}
-					if (linebuffer.toString().startsWith("over a maximum")) {
-						continue;
-					}
-					final String line = Util.replaceTs(linebuffer.toString().trim().replaceAll(" +", " "), Env.INSTANCE.getOs() == OS.win ? 3 : 1).replaceAll(" +", " ");
-					if (line.isEmpty()) {
-						continue;
-					}
-					if (line.contains("Trace complete")) {
-						break;
-					}
-					if (monitor.isCanceled()) {
-						break;
-					}
-					if (line.contains("*")) {
-						if (previous != null) {
-							addPoint(previous.toUnkown());
-						}
-						continue;
-					}
-					final String[] routePoint = line.split(" ");
-					final String ip;
-					String host = "";
-					final int latency;
-					final int dnslookupTime = DNSLookupService.UNDEF;
-
-					if (Env.INSTANCE.getOs() == OS.win) {
-						latency = (parseWindowsTime(routePoint[1]) + parseWindowsTime(routePoint[2]) + parseWindowsTime(routePoint[3])) / 3;
-						if (resolveHostname) {
-							if (routePoint.length > 5) {
-								host = routePoint[4];
-								ip = routePoint[5].replace("[", "").replace("]", "");
-							} else {
-								ip = routePoint[4];
-							}
-						} else {
-							ip = routePoint[4];
-						}
-					} else {
-						if (resolveHostname) {
-							if (routePoint.length > 3) {
-								host = routePoint[1];
-								ip = routePoint[2].replace("(", "").replace(")", "");
-								latency = (int) Float.parseFloat(routePoint[3]);
-							} else {
-								ip = routePoint[1].replace("(", "").replace(")", "");
-								latency = (int) Float.parseFloat(routePoint[2]);
-							}
-						} else {
-							ip = routePoint[1];
-							latency = (int) Float.parseFloat(routePoint[2]);
-						}
-					}
-					previous = addPoint(Pair.of(ip, host), latency, dnslookupTime);
-				}
-				if (monitor.isCanceled()) {
-					return;
-				}
-				final InputStream error = process.getErrorStream();
-
-				final List<String> errors = Util.readUTF8File(error);
-				if (!errors.isEmpty()) {
-					final StringBuilder m = new StringBuilder();
-					for (final String e : errors) {
-						// for some reason, this info message is dumped to the error stream, so just ignore it
-						if (!e.startsWith("traceroute to " + formatedDest) && !e.startsWith("traceroute: Warning: " + formatedDest + " has multiple addresses")) {
-							m.append(e).append("\n");
-						}
-					}
-					// notify error
-					if (!m.toString().isEmpty()) {
-						throw new IOException(m.toString());
-					}
-				}
-				// reached the max hops but not the target iup
-				if (previous != null && previous.getNumber() == maxHops && !previous.getIp().equals(destIp)) {
-					throw new MaxHopsException();
-				}
-			} finally {
-				try {
-					process.destroy();
-				} catch (final Exception e) {
-					LOGGER.error("Failed to destroy os traceroute process", e);
-				}
-			}
-		} catch (final MaxHopsException e) {
-			throw e;
-		} catch (final IOException e) {
-			throw e;
-		} catch (final Exception e) {
-			LOGGER.error("error while performing trace route command", e);
-		}
-	}
-
-	private static int parseWindowsTime(final String str) {
-		if ("<1".equals(str)) {
-			return 1;
-		}
-		return Integer.parseInt(str);
-	}
+	protected abstract void computeRoute(final String formatedDest, final CancelMonitor monitor, final boolean resolveHostname, final boolean ipV4, final int maxHops) throws Exception;
 
 	/**
 	 * Add a point corresponding to the given IP
@@ -459,7 +264,7 @@ public abstract class AbstractTraceRoute<T> extends AbstractObject<IRouteListene
 		if (!_route.isEmpty()) {
 			previous = _route.get(_route.size() - 1);
 		}
-		if (ip.startsWith("192.168.") || ip.equals("127.0.0.1")) {
+		if (ip.startsWith("192.168.") || ip.equals("127.0.0.1") || ip.startsWith("fc00::/7")) {
 			// private Ips, calculate location with public IP
 			point = _services.getGeo().populateGeoDataForIP(new RoutePoint(), _services.getGeo().getPublicIp().getLeft(), null);
 			point.setIp(ip);
@@ -498,17 +303,11 @@ public abstract class AbstractTraceRoute<T> extends AbstractObject<IRouteListene
 		return point;
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.ITraceRoute#getRoute()
-	 */
 	@Override
 	public List<RoutePoint> getRoute() {
 		return _route;
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.ITraceRoute#dispose()
-	 */
 	@Override
 	public void dispose() {
 		super.dispose();
@@ -517,28 +316,17 @@ public abstract class AbstractTraceRoute<T> extends AbstractObject<IRouteListene
 		_notifyThread.interrupt();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.ITraceRoute#size()
-	 */
 	@Override
 	public int size() {
 		return _route.size();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.ITraceRoute#focus(org.leo.traceroute.core.RoutePoint)
-	 */
 	@Override
 	public void focus(final RoutePoint point, final boolean animation) {
 		_focusedPoint = point;
-		for (final IRouteListener listener : getListeners()) {
-			listener.focusRoute(point, false, animation);
-		}
+		notifyListeners(listener -> listener.focusRoute(point, false, animation));
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.route.ITraceRoute#toCSV()
-	 */
 	@Override
 	public String toCSV() {
 		return toString(", ");
@@ -577,13 +365,10 @@ public abstract class AbstractTraceRoute<T> extends AbstractObject<IRouteListene
 		return builder.toString();
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.ITraceRoute#renotifyRoute()
-	 */
 	@Override
 	public void renotifyRoute() {
 		if (!_route.isEmpty()) {
-			for (final IRouteListener listener : getListeners()) {
+			notifyListeners(listener -> {
 				listener.newRoute(_resolveHostname);
 				for (final RoutePoint point : _route) {
 					listener.routePointAdded(point);
@@ -592,21 +377,18 @@ public abstract class AbstractTraceRoute<T> extends AbstractObject<IRouteListene
 				if (_focusedPoint != null) {
 					focus(_focusedPoint, false);
 				}
-			}
+			});
 		}
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.network.ISnifferNetworkInterfaceListener#notifyNewNetworkInterface(org.jnetpcap.PcapIf)
-	 */
 	@Override
-	public void notifyNewNetworkInterface(final T device, final byte[] mac) {
+	public void notifyNewNetworkInterface(final T device, Mode mode, final byte[] mac) {
+		if (mode != Mode.TRACE_ROUTE) {
+			return;
+		}
 		_device = device;
 	}
 
-	/**
-	 * @see org.leo.traceroute.core.route.ITraceRoute#clear()
-	 */
 	@Override
 	public void clear() {
 		_route.clear();
